@@ -112,4 +112,3 @@ func serveHTTP(cancel context.CancelFunc, logger *slog.Logger, server *http.Serv
 		cancel()
 	}
 }
-
