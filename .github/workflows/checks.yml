@@ -1,58 +1,83 @@
-name: Checks
-
+name: ARM64 deployment checks
 on:
   push:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.ref }}
+  group: checks-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  build:
-    name: Go ${{ matrix.go }} / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        go: ["1.24.x", stable]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go }}
-          cache: true
-      - name: Vet
-        run: go vet ./...
-      - name: Build
-        run: go build -trimpath ./cmd/opencode2api
-
-  format:
-    name: Formatting and WebUI syntax
-    runs-on: ubuntu-latest
+  source:
+    name: Go and WebUI checks
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go build -trimpath ./cmd/opencode2api
+      - run: node --check webui/app.js
+      - run: sh -n docker-entrypoint.sh
       - name: Check Go formatting
-        shell: bash
         run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            printf '%s\n' "$unformatted"
+          gofmt -d . > gofmt.patch
+          if [ -s gofmt.patch ]; then
+            cat gofmt.patch
             exit 1
           fi
-      - name: Check WebUI syntax
-        run: node --check webui/app.js
-      - name: Check container entrypoint syntax
-        run: sh -n docker-entrypoint.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: formatting-diff
+          path: gofmt.patch
+          if-no-files-found: ignore
+  container:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Native ARM64 Docker
+            runner: ubuntu-24.04-arm
+            browser: '0'
+          - name: Zeabur default builder and browser
+            runner: ubuntu-24.04
+            browser: '1'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.browser == '1'
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+      # Omit --platform to reproduce a shared worker's default target metadata.
+      - run: docker buildx build --load -t opencode2api:test .
+      - name: Install browser
+        if: matrix.browser == '1'
+        run: |
+          pip install playwright==1.64.0
+          playwright install --with-deps chromium
+      - name: Verify actual ARM64 container
+        env:
+          BROWSER_TEST: ${{ matrix.browser }}
+        run: python scripts/container_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.browser == '1'
+        with:
+          name: management-browser
+          path: test-results/
+          if-no-files-found: ignore

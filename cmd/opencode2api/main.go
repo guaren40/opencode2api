@@ -26,7 +26,24 @@ func main() {
 	configPath := flag.String("config", "config.json", "path to config.json")
 	listen := flag.String("listen", "", "override the configured API listen address")
 	webListen := flag.String("web-listen", "", "override the configured WebUI listen address")
+	initialize := flag.Bool("init-container-config", false, "initialize a missing container configuration")
+	seedPath := flag.String("config-seed", "/app/config.example.json", "container configuration seed")
+	healthcheck := flag.Bool("healthcheck", false, "check the container's local HTTP listener")
 	flag.Parse()
+	if *healthcheck {
+		if err := containerHealthcheck(); err != nil {
+			slog.Error("container healthcheck failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *initialize {
+		if err := config.BootstrapContainer(*configPath, *seedPath, os.Stdout); err != nil {
+			slog.Error("container initialization failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -56,16 +73,23 @@ func main() {
 	}
 	defer manager.Shutdown()
 
+	var management http.Handler
+	if cfg.WebUI.Enabled {
+		management = adminui.New(manager, monitor, hub, logger).Handler()
+	}
+	apiHandler := publicHandler(manager.Handler(), nil)
+	if cfg.WebUI.Enabled && cfg.WebUI.Listen == cfg.Listen {
+		apiHandler = publicHandler(manager.Handler(), management)
+	}
 	apiServer := &http.Server{
-		Addr: cfg.Listen, Handler: manager.Handler(), ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second,
+		Addr: cfg.Listen, Handler: apiHandler, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second,
 	}
 	servers := []*http.Server{apiServer}
 	go serveHTTP(cancel, logger, apiServer, "api")
 
-	if cfg.WebUI.Enabled {
-		admin := adminui.New(manager, monitor, hub, logger)
+	if cfg.WebUI.Enabled && cfg.WebUI.Listen != cfg.Listen {
 		webServer := &http.Server{
-			Addr: cfg.WebUI.Listen, Handler: admin.Handler(), ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second,
+			Addr: cfg.WebUI.Listen, Handler: management, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second,
 		}
 		servers = append(servers, webServer)
 		go serveHTTP(cancel, logger, webServer, "webui")
@@ -88,3 +112,4 @@ func serveHTTP(cancel context.CancelFunc, logger *slog.Logger, server *http.Serv
 		cancel()
 	}
 }
+

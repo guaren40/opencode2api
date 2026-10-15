@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://schema.zeabur.app/template.json
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: opencode2api ARM64
+spec:
+  description: ARM64 OpenCode API gateway with WebUI, automatic credentials and persistent state.
+  tags:
+    - AI
+    - Tool
+  variables:
+    - key: PUBLIC_DOMAIN
+      type: DOMAIN
+      name: Service domain
+      description: HTTPS domain shared by the management UI and API.
+  readme: |-
+    # opencode2api ARM64
+    Deploy to an ARM64 server. Configuration and a local API key are created
+    automatically. Open the domain, sign in as admin with ADMIN_PASSWORD from
+    the service variables, then manage upstream keys and copy your local API key.
+    The API base URL is https://your-domain/v1. State is persisted automatically
+    at /var/lib/opencode2api. The default configuration enables the existing
+    anonymous upstream lane; its model availability depends on OpenCode.
+  services:
+    - name: opencode2api
+      template: GIT
+      domainKey: PUBLIC_DOMAIN
+      spec:
+        source:
+          source: GITHUB
+          repo: 1420579753
+          branch: main
+        ports:
+          - id: web
+            port: 8080
+            type: HTTP
+        volumes:
+          - id: state
+            dir: /var/lib/opencode2api
+        env:
+          ADMIN_PASSWORD:
+            default: ${PASSWORD}
+          PORT:
+            default: "8080"
+        instructions:
+          - type: DOMAIN
+            title: Open management UI
+            content: https://${PUBLIC_DOMAIN}
+          - type: TEXT
+            title: Management username
+            content: admin
+          - type: PASSWORD
+            title: Initial management password
+            content: ${ADMIN_PASSWORD}
+          - type: TEXT
+            title: API base URL
+            content: https://${PUBLIC_DOMAIN}/v1
+localization:
+  zh-CN:
+    description: ARM64 专用 OpenCode API 网关，管理面板与 API 共用域名，自动初始化并持久化配置。
+    variables:
+      - key: PUBLIC_DOMAIN
+        name: 服务域名
+        description: 管理面板与 API 共同使用的 HTTPS 域名。
+    readme: |-
+      # opencode2api ARM64
+      部署到 ARM64 服务器后，配置和本地 API Key 自动创建，状态卷自动挂载到
+      /var/lib/opencode2api。打开域名，使用 admin 和服务变量中的 ADMIN_PASSWORD
+      登录管理面板，可添加 Zen / Go Key、管理模型并复制本地 API Key。
+      客户端 API Base 为 https://你的域名/v1。默认启用项目已有的匿名通道，
+      可用模型与额度由上游 OpenCode 决定。

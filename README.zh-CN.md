@@ -24,10 +24,10 @@ WebUI 内嵌在可执行文件中，运行服务无需 Node.js 或数据库。
 
 ## 快速开始
 
-从 [GitHub Releases](https://github.com/jasonxu114514/opencode2api/releases) 下载可执行文件，或使用 **Go 1.24 及以上版本**编译：
+从 [GitHub Releases](https://github.com/guaren40/opencode2api/releases) 下载可执行文件，或使用 **Go 1.24 及以上版本**编译：
 
 ```bash
-git clone https://github.com/jasonxu114514/opencode2api.git
+git clone https://github.com/guaren40/opencode2api.git
 cd opencode2api
 cp config.example.json config.json
 go build -o opencode2api ./cmd/opencode2api
@@ -57,52 +57,68 @@ Windows 下使用 `Copy-Item config.example.json config.json` 复制配置，执
 
 配置所在目录需要可写，以便迁移密码、保存配置和写入模型缓存。
 
-## Docker 部署
+## Zeabur / ARM64 Docker 部署
 
-已发布镜像：`ghcr.io/jasonxu114514/opencode2api`。
+此仓库的 Docker 镜像固定为 **`linux/arm64`**，API 和 WebUI 默认共用 **8080** 一个端口。配置、本地 API Key 和管理密码会自动初始化，无需手动创建或挂载 `config.json`。
+
+### 在 Zeabur 直接部署本仓库
+
+1. 选择你已接入 Zeabur 的 **ARM64 VPS**，新建 GitHub 服务，选择 **`guaren40/opencode2api`** 的 `main` 分支，根目录保持 `/`。Zeabur 自动使用根目录的 `Dockerfile`。
+2. 绑定 HTTPS 域名，打开域名就是管理面板，客户端 API Base 为 **`https://你的域名/v1`**。程序自动跟随 Zeabur 的 `PORT`。
+3. 初始用户名 **`admin`**。密码优先使用 **`ADMIN_PASSWORD`**，未设置时使用 Zeabur 的 **`PASSWORD`**；都没有时自动生成，并在首次启动日志中显示。
+4. 管理面板中可添加自己的 Zen / Go Key。默认已清除示例上游 Key，并启用项目已有的匿名通道；可用模型与额度由 OpenCode 决定。
+
+为了跨重新部署保留配置、管理密码和 API Key，请将持久化存储挂载到 **`/var/lib/opencode2api`**。使用下方模板会自动配置此存储卷。
+
+### 使用 Zeabur 模板
+
+[`zeabur-template.yaml`](zeabur-template.yaml) 已包含本仓库 Git 源、HTTP 端口、随机初始密码、域名绑定和状态卷。在仓库目录运行：
 
 ```bash
-cp config.example.json config.json
-# 启动前填写 Key，并替换 WebUI 密码。
-docker compose up -d
+npx zeabur@latest template deploy -f zeabur-template.yaml
+```
+
+按提示选择 ARM64 项目和域名。无需准备配置文件或拆分部署两个服务。此模板也可通过自己的 Zeabur 账户发布到模板市场。
+
+### 在 ARM64 Linux 上使用 Docker
+
+```bash
+git clone https://github.com/guaren40/opencode2api.git
+cd opencode2api
+docker compose up -d --build
 docker compose logs -f
 ```
 
-Compose **仅在首次启动时**将宿主机配置导入 `opencode2api-state` 命名卷。后续建议通过 WebUI 修改配置。需要重新导入宿主机文件时：
+访问 `http://服务器IP:8080`，管理用户名为 `admin`。未设置密码时，从首次启动日志读取随机密码。本地 API Key 可在管理面板的敏感配置中验证密码后查看，也保存在状态目录的 `initial-credentials.txt` 中。管理密码与本地 API Key 相互独立。
+
+也可以直接构建运行：
 
 ```bash
-docker compose cp config.json opencode2api:/var/lib/opencode2api/config.json
-docker compose restart
+docker build -t opencode2api:arm64 .
+docker run -d --name opencode2api -p 8080:8080 \
+  -v opencode2api-state:/var/lib/opencode2api opencode2api:arm64
 ```
 
-容器内的服务进程使用普通用户运行。Compose 启用只读根文件系统，并提供可写状态卷和临时 `/tmp` 文件系统。
+服务进程以普通用户运行。Compose 使用只读根文件系统、可写状态卷和临时 `/tmp`。构建机器可以使用共享构建器；编译目标、最终基础镜像和运行时检查均固定为 ARM64，不会生成其他架构的部署镜像。
 
-| Compose 环境变量            | 默认值   | 作用                                 |
-| --------------------------- | -------- | ------------------------------------ |
-| `OPENCODE2API_VERSION`      | `latest` | 镜像标签；可指定发行标签来固定版本。 |
-| `OPENCODE2API_PORT`         | `8080`   | 映射到容器 8080 的宿主机端口。       |
-| `OPENCODE2API_WEBUI_PORT`   | `8081`   | 映射到容器 8081 的宿主机端口。       |
-| `OPENCODE2API_LISTEN`       | 未设置   | 显式覆盖容器内 API 监听地址。        |
-| `OPENCODE2API_WEBUI_LISTEN` | 未设置   | 显式覆盖容器内 WebUI 监听地址。      |
+### 可选的初始化变量
 
-后两项在容器内对应 `LISTEN_ADDRESS` 与 `WEBUI_LISTEN_ADDRESS`。值为空时使用配置文件中的地址。首次初始化配置时，入口脚本会将示例 API 地址 `127.0.0.1:8080` 改为 `0.0.0.0:8080`，使其能够通过发布端口访问。
+这些变量只用于创建缺失的配置。已有配置不会因变量改变而被覆盖或重置，可通过管理面板修改账号和 Key。
 
-修改宿主机端口不会改变容器内监听地址。如果修改容器内 API 端口，还需要同步调整端口映射和镜像健康检查；默认健康检查使用 8080 端口。
+| 变量 | 用途 |
+| --- | --- |
+| `ADMIN_USERNAME` | 初始管理用户名，默认 `admin` |
+| `ADMIN_PASSWORD` | 初始管理密码，至少 10 字节；Zeabur 中可留空以使用 `PASSWORD` |
+| `SERVER_API_KEY` | 可选的初始本地 API Key；不设置则随机生成 |
+| `ZEN_API_KEY` / `ZEN_API_KEYS` | 初始 Zen Key；复数变量支持逗号或换行分隔 |
+| `GO_API_KEY` / `GO_API_KEYS` | 初始 Go Key；复数变量支持逗号或换行分隔 |
+| `ANONYMOUS` | 可选 `true` / `false`；没有上游 Key 时默认启用匿名通道 |
+| `PORT` | HTTP 监听端口，默认 `8080`，同时用于容器健康检查 |
+| `CONFIG_SEED_PATH` | 可选，自定义且有效的种子配置路径；默认使用内置示例并替换示例凭据 |
 
-构建并运行本地镜像：
+`/livez` 用于容器存活检查，不依赖外部模型服务。原有 `/healthz` 保留上游和模型就绪状态，上游不可用时仍可登录面板排查。镜像仅暴露一个 HTTP 端口，无需 Caddy、Nginx 或独立的面板容器。
 
-```bash
-docker build -t opencode2api:local .
-docker volume create opencode2api-state
-docker run -d --name opencode2api \
-  -p 8080:8080 -p 8081:8081 \
-  -e CONFIG_SEED_PATH=/run/config/opencode2api.json \
-  -v "$(pwd)/config.json:/run/config/opencode2api.json:ro" \
-  -v opencode2api-state:/var/lib/opencode2api \
-  opencode2api:local
-```
-
-在 Docker 中使用 `proxyfile` 时，代理文件也需要挂载到容器内配置指定的位置。
+在 Docker 中使用 `proxyfile` 时，代理文件仍需要挂载到容器内配置指定的位置。
 
 ## API 调用
 
@@ -496,3 +512,4 @@ node --check webui/app.js
 SPDX-License-Identifier: GPL-3.0-or-later
 
 本项目是自由软件，采用自由软件基金会发布的 GNU 通用公共许可证第 3 版或（由你选择的）任何后续版本。你可以按该许可证重新分发和修改本项目；本项目不提供任何担保。完整条款见 [LICENSE](LICENSE)。
+

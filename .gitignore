@@ -20,3 +20,10 @@ coverage.out
 # Local credentials, deployment backups, and verification artifacts
 .local/
 *.availability.json
+
+
+__pycache__/
+*.py[cod]
+test-results/
+initial-credentials.txt
+gofmt.patch

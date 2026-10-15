@@ -72,26 +72,6 @@ jobs:
       matrix:
         include:
           - goos: linux
-            goarch: amd64
-            extension: ""
-            archive: tar.gz
-          - goos: linux
-            goarch: arm64
-            extension: ""
-            archive: tar.gz
-          - goos: windows
-            goarch: amd64
-            extension: .exe
-            archive: zip
-          - goos: windows
-            goarch: arm64
-            extension: .exe
-            archive: zip
-          - goos: darwin
-            goarch: amd64
-            extension: ""
-            archive: tar.gz
-          - goos: darwin
             goarch: arm64
             extension: ""
             archive: tar.gz
@@ -191,7 +171,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.image_metadata.outputs.tags }}
           labels: ${{ steps.image_metadata.outputs.labels }}
@@ -231,3 +211,4 @@ jobs:
           else
             gh release create "$RELEASE_TAG" release-files/* "${release_type[@]}" --generate-notes --title "$RELEASE_TAG" --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
           fi
+

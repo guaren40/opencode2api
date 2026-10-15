@@ -24,10 +24,10 @@ See the [management console guide (Chinese)](docs/management.zh-CN.md) for the n
 
 ## Quick start
 
-Download a binary from [GitHub Releases](https://github.com/jasonxu114514/opencode2api/releases), or build with **Go 1.24 or newer**:
+Download a binary from [GitHub Releases](https://github.com/guaren40/opencode2api/releases), or build with **Go 1.24 or newer**:
 
 ```bash
-git clone https://github.com/jasonxu114514/opencode2api.git
+git clone https://github.com/guaren40/opencode2api.git
 cd opencode2api
 cp config.example.json config.json
 go build -o opencode2api ./cmd/opencode2api
@@ -57,52 +57,57 @@ Command-line options:
 
 The configuration directory must be writable for password migration, configuration saves, and model caches.
 
-## Docker
+## Zeabur / ARM64 Docker deployment
 
-The published image is `ghcr.io/jasonxu114514/opencode2api`.
+This fork produces **`linux/arm64` only**. The API and embedded WebUI share **port 8080**. Configuration, the local API key and management credentials are initialized automatically; no host `config.json` is required.
+
+### Zeabur
+
+Select your ARM64 VPS and deploy the **`main` branch of `guaren40/opencode2api`** as a GitHub service. Keep the repository root as the build directory; Zeabur detects the Dockerfile. Bind an HTTPS domain and open it for the management UI. Clients use **`https://your-domain/v1`**. The application follows Zeabur's `PORT` automatically.
+
+The initial username is **`admin`**. The password is `ADMIN_PASSWORD`, then Zeabur's `PASSWORD`, or an automatically generated password printed once in the startup logs. The local API key is separate and can be revealed in the authenticated management UI or read from `/var/lib/opencode2api/initial-credentials.txt`.
+
+Add persistent storage at **`/var/lib/opencode2api`** to retain credentials and configuration across redeploys. The included [Zeabur template](zeabur-template.yaml) configures this volume, the Git source, HTTP port and domain automatically:
 
 ```bash
-cp config.example.json config.json
-# Configure keys and replace the WebUI password before starting.
-docker compose up -d
+npx zeabur@latest template deploy -f zeabur-template.yaml
+```
+
+Run this command from the repository directory and select an ARM64 project. The default configuration clears placeholder upstream keys and enables the existing anonymous lane. Availability and quotas depend on OpenCode. Add your own Zen / Go keys in the UI for keyed access.
+
+### Docker on ARM64 Linux
+
+```bash
+git clone https://github.com/guaren40/opencode2api.git
+cd opencode2api
+docker compose up -d --build
 docker compose logs -f
 ```
 
-Compose imports the host configuration into the `opencode2api-state` volume **only on first startup**. Subsequent changes should be made through the WebUI. To import an edited host configuration again:
+Open `http://your-server:8080`. The service runs as an unprivileged user. Compose provides a read-only root filesystem, writable state volume and temporary `/tmp`.
+
+For a direct Docker deployment:
 
 ```bash
-docker compose cp config.json opencode2api:/var/lib/opencode2api/config.json
-docker compose restart
+docker build -t opencode2api:arm64 .
+docker run -d --name opencode2api -p 8080:8080 \
+  -v opencode2api-state:/var/lib/opencode2api opencode2api:arm64
 ```
 
-The container runs the service as an unprivileged user. Compose uses a read-only root filesystem, a writable state volume, and a temporary `/tmp` filesystem.
+| Optional initialization variable | Purpose |
+| --- | --- |
+| `ADMIN_USERNAME` | Initial management username; default `admin` |
+| `ADMIN_PASSWORD` | Initial management password, at least 10 bytes; falls back to Zeabur's `PASSWORD` |
+| `SERVER_API_KEY` | Initial local API key; generated randomly if omitted |
+| `ZEN_API_KEY` / `ZEN_API_KEYS` | Initial upstream Zen keys; plural accepts commas or newlines |
+| `GO_API_KEY` / `GO_API_KEYS` | Initial upstream Go keys; plural accepts commas or newlines |
+| `ANONYMOUS` | Optional `true` / `false`; enabled by default when no upstream keys exist |
+| `PORT` | HTTP port, default `8080`; also used by the container healthcheck |
+| `CONFIG_SEED_PATH` | Optional valid configuration seed file; defaults to the bundled example |
 
-| Compose variable            | Default  | Effect                                            |
-| --------------------------- | -------- | ------------------------------------------------- |
-| `OPENCODE2API_VERSION`      | `latest` | Image tag. Pin a release tag for a fixed version. |
-| `OPENCODE2API_PORT`         | `8080`   | Host port mapped to container port 8080.          |
-| `OPENCODE2API_WEBUI_PORT`   | `8081`   | Host port mapped to container port 8081.          |
-| `OPENCODE2API_LISTEN`       | Unset    | Explicit container API listen override.           |
-| `OPENCODE2API_WEBUI_LISTEN` | Unset    | Explicit container WebUI listen override.         |
+Existing state always wins over initialization variables. Change passwords and keys in the management UI after initialization. `/livez` checks the local HTTP service independently of upstream readiness; `/healthz` retains the original model/upstream readiness report. A shared build worker can compile the project, but the produced executable, final root filesystem and container runtime checks are fixed to ARM64.
 
-The last two variables become `LISTEN_ADDRESS` and `WEBUI_LISTEN_ADDRESS` inside the container. Empty values defer to the configuration file. While initializing a configuration, the entrypoint changes the example API address `127.0.0.1:8080` to `0.0.0.0:8080` so published ports can reach it.
-
-Changing host ports does not change container listeners. If you change the internal API port, also update the port mapping and the image health check, which uses port 8080.
-
-For a local image:
-
-```bash
-docker build -t opencode2api:local .
-docker volume create opencode2api-state
-docker run -d --name opencode2api \
-  -p 8080:8080 -p 8081:8081 \
-  -e CONFIG_SEED_PATH=/run/config/opencode2api.json \
-  -v "$(pwd)/config.json:/run/config/opencode2api.json:ro" \
-  -v opencode2api-state:/var/lib/opencode2api \
-  opencode2api:local
-```
-
-A `proxyfile` used in Docker must also be available inside the container at the configured path.
+A `proxyfile` used in Docker must still be available inside the container at its configured path.
 
 ## API usage
 
@@ -501,3 +506,4 @@ Observations are persisted by upstream URL, model and native protocol, displayed
 SPDX-License-Identifier: GPL-3.0-or-later
 
 This project is free software: you may redistribute and modify it under the GNU General Public License as published by the Free Software Foundation, either version 3 or (at your option) any later version. It is distributed without any warranty. See [LICENSE](LICENSE) for the full terms.
+

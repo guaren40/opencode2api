@@ -800,6 +800,9 @@ $("#refresh-now").onclick = async () => {
 };
 function derivedAPIBase() {
   if (!config) return `${location.protocol}//${location.hostname}:8080`;
+  if (config.effective?.listen === config.effective?.webui_listen && config.effective?.listen) {
+    return location.origin;
+  }
   const listen = config.effective?.listen || config.listen || ":8080";
   const bracket = listen.match(/^\[.*\]:(\d+)$/),
     plain = listen.match(/:(\d+)$/),
@@ -1468,3 +1471,4 @@ async function loadAvailability() {
   }
 }
 $("#availability-refresh").onclick = loadAvailability;
+
